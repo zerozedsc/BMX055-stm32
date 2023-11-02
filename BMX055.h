@@ -9,23 +9,23 @@
 
 #include <main.h>
 
-typedef struct {
-	float x;
-	float y;
-	float z;
-} POS;
+
 
 // ACCELEROMETER SETUP
 #define ACCEL_CHIP_ID_REG    0x00
 #define ACCEL_CHIP_ID_DEFAULT    0xFA //default chip id reg
-#define ACCEL_ADDR1  0x18 //default address
-#define ACCEL_ADDR2  0x19
+#define ACCEL_ADDR1  0x19 //default address
+#define ACCEL_ADDR2  0x18
 #define ACCEL_X_LSB     0x02
 #define ACCEL_X_MSB     0x03
 #define ACCEL_Y_LSB     0x04
 #define ACCEL_Y_MSB     0x05
 #define ACCEL_Z_LSB     0x06
 #define ACCEL_Z_MSB     0x07
+#define ACCEL_XYZ_OFFSET 0x37
+#define ACCEL_X_OFFSET 0x38
+#define ACCEL_Y_OFFSET 0x39
+#define ACCEL_Z_OFFSET 0x3A
 #define ACCEL_RANGE_REG   0x0F
 #define ACCEL_RANGE_2G  0x03  // 0011 0.98mg/LSB
 #define ACCEL_RANGE_4G  0x05  // 0101 1.95mg/LSB
@@ -37,22 +37,32 @@ typedef struct {
 // GYRO SETUP
 #define GYRO_CHIP_ID_REG    0x00
 #define GYRO_CHIP_ID_DEFAULT    0x0F
-#define GYRO_ADDR1  0x68 //default address
-#define GYRO_ADDR2  0x69
+#define GYRO_ADDR1  0x69 //default address
+#define GYRO_ADDR2  0x68
 #define GYRO_X_LSB 0x02
 #define GYRO_X_MSB 0x03
 #define GYRO_Y_LSB 0x04
 #define GYRO_Y_MSB 0x05
 #define GYRO_Z_LSB 0x06
 #define GYRO_Z_MSB 0x07
-#define GYRO_SENSITIVITY 0.0038f;
+#define GYRO_XYZ_OFFSET 0x36
+#define GYRO_X_OFFSET 0x37
+#define GYRO_Y_OFFSET 0x38
+#define GYRO_Z_OFFSET 0x39
+#define GYRO_SENSITIVITY 0.061f;
 #define GYRO_ERROR_MULTIPLIER 1.0f
 #define GYRO_ERROR_CONSTANT 0.0f
 
 // MAGNETOMETER SETUP
+#define NORMAL_MODE 0x00
 #define MAG_CHIP_ID_REG    0x40
 #define MAG_CHIP_ID_DEFAULT    0x32
-#define MAG_ADDR  0x10 //default address
+#define MAG_OP_MODE_REG 0x4C
+#define MAG_CONTROL_REG 0xXX
+#define MAG_ADDR1  0x13 //default address
+#define MAG_ADDR2  0x12
+#define MAG_ADDR3  0x11
+#define MAG_ADDR4  0x10
 #define MAG_X_LSB 0x42
 #define MAG_X_MSB 0x43
 #define MAG_Y_LSB 0x44
@@ -61,6 +71,7 @@ typedef struct {
 #define MAG_Z_MSB 0x47
 #define MAG_ERROR_MULTIPLIER 1.0f
 #define MAG_ERROR_CONSTANT 0.0f
+
 
 // 3 SENSOR IN ONE TIME SETUP
 // Thresholds
@@ -77,16 +88,27 @@ typedef struct {
 #define FLIPPING_THRESHOLD 30.0f //This threshold would determine a significant change in the orientation of the robot.
 #define FALLING_THRESHOLD_Z 4.5f //This represents the deviation from the gravitational acceleration (in the z-axis) that indicates the robot is falling.
 #define FALLING_THRESHOLD_TOTAL 15.0f // This represents the magnitude of the acceleration in all directions.
+#define NUM_CALIBRATION_SAMPLES 1000
+#define BMX055_SIZE 22
+
+
+typedef struct {
+	float x;
+	float y;
+	float z;
+} POS;
 
 
 // GYRO FUNCTION
 extern POS GYRO_POS; // Degrees per second (°/s) or Radians per second (rad/s)
 extern POS GYRO_MOVEMENT; // Degrees per second (°/s) or Radians per second (rad/s)
+extern POS GYRO_OFFSET;
+extern POS GYRO_RAW;
 
-extern int checkGyro;
+extern int checkGyro, calibrateGyro;
 
-int GyroCheck(I2C_HandleTypeDef *hi2c1);
-void ReadGyro(I2C_HandleTypeDef *hi2c1, float deltaTime); // deltaTime in seconds 10ms = 0.01s
+int GyroCheck(I2C_HandleTypeDef *hi2c);
+void ReadGyro(I2C_HandleTypeDef *hi2c, float deltaTime); // deltaTime in seconds 10ms = 0.01s
 const char* getGyroPosAsString();
 const char* getGyroMovementAsString();
 
@@ -95,22 +117,26 @@ extern POS VELOCITY; // Meters per second (m/s), ACCEL * deltaTime
 extern POS PREVIOUS_VELOCITY;
 extern POS ACCEL; // Meters per second squared (m/s^2) or G-forces (where 1G = 9.81 m/s^2)
 extern POS PREVIOUS_ACCEL;
+extern POS ACCEL_OFFSET;
+extern POS ACCEL_RAW;
 
 extern int checkAccel, accelCode;
 
-int AccelCheck(I2C_HandleTypeDef *hi2c1, uint8_t ACCEL_G);
-void ReadAccel(I2C_HandleTypeDef *hi2c1, float deltaTime);
+int AccelCheck(I2C_HandleTypeDef *hi2c, uint8_t ACCEL_G);
+void ReadAccel(I2C_HandleTypeDef *hi2c, float deltaTime);
 const char* getAccelAsString();
 const char* getVelocityAsString();
 
 // MAGNETOMETER FUNCTION
 extern POS MAG_POS; // microteslas (µT) or milligauss (mG) -> unit measurement
+extern POS MAG_OFFSET;
+extern POS MAG_RAW;
 
 extern int checkMag;
-extern float orientation, heading; //heading and orientation value from magnetometer
+extern float orientation, heading, BMX055_data[BMX055_SIZE], BMX055_raw[9]; //heading and orientation value from magnetometer
 
-int MagCheck(I2C_HandleTypeDef *hi2c1);
-void ReadMag(I2C_HandleTypeDef *hi2c1);
+int MagCheck(I2C_HandleTypeDef *hi2c);
+void ReadMag(I2C_HandleTypeDef *hi2c);
 const char* getOrientationAsString();
 const char* getMagPosAsString();
 
@@ -132,13 +158,16 @@ typedef enum {
 } WheelStatus;
 
 extern float currentHeading;
+extern int ERROR_PRINT[3];
 
-void BMX055_init(I2C_HandleTypeDef *hi2c);
+void BMX055_init(I2C_HandleTypeDef *hi2c, float timer);
 void UpdatePosition(float deltaTime);
 const RobotActivity DetectActivity(); // detect robot activity
 const WheelStatus DetectWheelSlip(int encoderCount);
 const char* getDetectActivityAsString(RobotActivity activity);
 const char* getWheelSlipAsString(WheelStatus wheel);
+const char* getCurrentPosAsString();
+const char* getPreviousPosAsString();
 const float CalculateDistanceTravelled();
 const int isClimbing();
 

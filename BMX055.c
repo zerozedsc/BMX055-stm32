@@ -13,8 +13,39 @@
 #include <math.h>
 #include <main.h>
 
+void Imu_init(I2C_HandleTypeDef hi2c1)
+{
+	HAL_I2C_Mem_Write(&hi2c1, 0x19<<1, 0x0F, I2C_MEMADD_SIZE_8BIT, 0x03, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x19<<1, 0x10, I2C_MEMADD_SIZE_8BIT, 0x08, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x19<<1, 0x11, I2C_MEMADD_SIZE_8BIT, 0x00, 1, 1000);
 
-int16_t raw_x, raw_y, raw_z;
+	HAL_I2C_Mem_Write(&hi2c1, 0x69<<1, 0x0F, I2C_MEMADD_SIZE_8BIT, 0x04, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x69<<1, 0x10, I2C_MEMADD_SIZE_8BIT, 0x07, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x69<<1, 0x11, I2C_MEMADD_SIZE_8BIT, 0x00, 1, 1000);
+
+	HAL_I2C_Mem_Write(&hi2c1, 0x13<<1, 0x4B, I2C_MEMADD_SIZE_8BIT, 0x83, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x13<<1, 0x4B, I2C_MEMADD_SIZE_8BIT, 0x01, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x13<<1, 0x4C, I2C_MEMADD_SIZE_8BIT, 0x00, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x13<<1, 0x4E, I2C_MEMADD_SIZE_8BIT, 0x84, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x13<<1, 0x51, I2C_MEMADD_SIZE_8BIT, 0x04, 1, 1000);
+	HAL_I2C_Mem_Write(&hi2c1, 0x13<<1, 0x52, I2C_MEMADD_SIZE_8BIT, 0x16, 1, 1000);
+}
+
+// misc function
+void floatToString(float value, char* buffer, int precision) {
+    int integerPart = (int)value;
+    int decimalPart = (value - integerPart) * pow(10, precision);
+
+    // Correct for negative values of decimalPart when the float is negative.
+    if (value < 0 && decimalPart != 0) {
+        decimalPart = -decimalPart;
+    }
+
+    snprintf(buffer, 20, "%d.%0*d", integerPart, precision, decimalPart);  // Assuming buffer is at least 20 characters
+}
+
+// function for all sensor
+int16_t raw_x, raw_y, raw_z, offset_x, offset_y, offset_z;
 
 int16_t ReadRawData(I2C_HandleTypeDef *hi2c, uint8_t SENSOR_ADDR, uint8_t lsbAddr, uint8_t msbAddr) {
     uint8_t lsb = 0;
@@ -26,26 +57,56 @@ int16_t ReadRawData(I2C_HandleTypeDef *hi2c, uint8_t SENSOR_ADDR, uint8_t lsbAdd
     return (int16_t) ((msb << 8) | lsb);
 }
 
+int16_t ReadRawDataBurst(I2C_HandleTypeDef *hi2c, uint8_t SENSOR_ADDR, uint8_t lsbAddr) {
+    uint8_t data[2];
+
+    // Read both LSB and MSB in a single transaction
+    HAL_I2C_Mem_Read(hi2c, SENSOR_ADDR << 1, lsbAddr, 1, data, 2, 1000);
+
+    return (int16_t)((data[1] << 8) | data[0]);  // MSB is data[1] and LSB is data[0]
+}
+
+int16_t ReadOffsetData(I2C_HandleTypeDef *hi2c, uint8_t SENSOR_ADDR, uint8_t firstReg, uint8_t secondReg) {
+    uint8_t firstByte = 0;
+    uint8_t secondByte = 0;
+
+    // Read the first and second byte
+    HAL_I2C_Mem_Read(hi2c, SENSOR_ADDR << 1, firstReg, 1, &firstByte, 1, 1000);
+    HAL_I2C_Mem_Read(hi2c, SENSOR_ADDR << 1, secondReg, 1, &secondByte, 1, 1000);
+
+    // Construct the 12-bit offset value. Please adjust this according to the register's data arrangement.
+    int16_t offsetValue = ((secondByte << 4) & 0x0FF0) | ((firstByte >> 3) & 0x000F);
+
+    // Considering the data is 2's complement, adjusting for the negative values.
+    if (offsetValue & 0x0800) {  // Checking the sign bit
+        offsetValue |= 0xF000;  // Extending the sign bit
+    }
+
+    return offsetValue;
+}
+
 // gyroscope function
 uint8_t GYRO_ADDR = GYRO_ADDR1;
 
 POS GYRO_POS = {0.0f, 0.0f, 0.0f};
 POS GYRO_MOVEMENT = {0.0f, 0.0f, 0.0f};
+POS GYRO_OFFSET = {200.0f, 216.0f, 410.0f};
+POS GYRO_RAW = {0.0f, 0.0f, 0.0f};
 
-int checkGyro = 0;
+int checkGyro = 0, calibrateGyro = 0;
 
-int GyroCheck(I2C_HandleTypeDef *hi2c1){
+int GyroCheck(I2C_HandleTypeDef *hi2c){
 	uint8_t chipID = 0;
 
-	HAL_StatusTypeDef status = HAL_I2C_Mem_Read(hi2c1, GYRO_ADDR << 1, GYRO_CHIP_ID_REG, 1, &chipID, 1, 1000);
-	if (status == HAL_OK && chipID == GYRO_CHIP_ID_DEFAULT) return 1;
+	HAL_StatusTypeDef status = HAL_I2C_Mem_Read(hi2c, GYRO_ADDR << 1, GYRO_CHIP_ID_REG, 1, &chipID, 1, 1000);
+	if (status == HAL_OK) return 1;
 	else if (status == HAL_OK && chipID != GYRO_CHIP_ID_DEFAULT){
 				return 2;
 		}
 
 	GYRO_ADDR = GYRO_ADDR2;
-	status = HAL_I2C_Mem_Read(hi2c1, GYRO_ADDR << 1, GYRO_CHIP_ID_REG, 1, &chipID, 1, 1000);
-	if (status == HAL_OK && chipID == GYRO_CHIP_ID_DEFAULT) return 1;
+	status = HAL_I2C_Mem_Read(hi2c, GYRO_ADDR << 1, GYRO_CHIP_ID_REG, 1, &chipID, 1, 1000);
+	if (status == HAL_OK) return 1;
 	else if (status == HAL_OK && chipID != GYRO_CHIP_ID_DEFAULT){
 				return 2;
 		}
@@ -53,22 +114,54 @@ int GyroCheck(I2C_HandleTypeDef *hi2c1){
 	return 0;
 }
 
-void UpdateRawGyroXYZ(I2C_HandleTypeDef *hi2c1){
-	raw_x = ReadRawData(hi2c1, GYRO_ADDR, GYRO_X_LSB, GYRO_X_MSB);
-	raw_y = ReadRawData(hi2c1, GYRO_ADDR, GYRO_Y_LSB, GYRO_Y_MSB);
-	raw_z = ReadRawData(hi2c1, GYRO_ADDR, GYRO_Z_LSB, GYRO_Z_MSB);
+void GyroFilter(int16_t *raw_x, int16_t *raw_y, int16_t *raw_z){
+	if (-GYRO_OFFSET.x < *raw_x && *raw_x < GYRO_OFFSET.x) {
+	        *raw_x = 0;
+	    } else {
+	        *raw_x = (*raw_x > 0) ? (*raw_x - GYRO_OFFSET.x) : (*raw_x + GYRO_OFFSET.x);
+	    }
+
+
+	    if (-GYRO_OFFSET.y < *raw_y && *raw_y < GYRO_OFFSET.y) {
+	        *raw_y = 0;
+	    } else {
+	        *raw_y = (*raw_y > 0) ? (*raw_y - GYRO_OFFSET.y) : (*raw_y + GYRO_OFFSET.y);
+	    }
+
+
+	    if (-GYRO_OFFSET.z < *raw_z && *raw_z < GYRO_OFFSET.z) {
+	        *raw_z = 0;
+	    } else {
+	        *raw_z = (*raw_z > 0) ? (*raw_z - GYRO_OFFSET.z) : (*raw_z + GYRO_OFFSET.z);
+	    }
+
 }
 
-void ReadGyro(I2C_HandleTypeDef *hi2c1, float deltaTime){
-	UpdateRawGyroXYZ(hi2c1);
+void UpdateRawGyroXYZ(I2C_HandleTypeDef *hi2c1){
+    raw_x = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_X_LSB);
+    raw_y = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_Y_LSB);
+    raw_z = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_Z_LSB);
+
+    GyroFilter(&raw_x, &raw_y, &raw_z);
+
+
+    GYRO_RAW.x = raw_x;
+    GYRO_RAW.y = raw_y;
+    GYRO_RAW.z = raw_z;
+}
+
+void ReadGyro(I2C_HandleTypeDef *hi2c, float deltaTime){
+	UpdateRawGyroXYZ(hi2c);
+
 
 	float sensitivity = GYRO_SENSITIVITY; // This is hypothetical. Get the exact value from the datasheet.
 
+	    // Convert the corrected values into movements with sensitivity scaling
 	GYRO_MOVEMENT.x = (raw_x * sensitivity * GYRO_ERROR_MULTIPLIER) + GYRO_ERROR_CONSTANT;
 	GYRO_MOVEMENT.y = (raw_y * sensitivity * GYRO_ERROR_MULTIPLIER) + GYRO_ERROR_CONSTANT;
 	GYRO_MOVEMENT.z = (raw_z * sensitivity * GYRO_ERROR_MULTIPLIER) + GYRO_ERROR_CONSTANT;
 
-	// Integrate the rate of change to get the change in orientation (in degrees)
+	    // Integrate the rate of change to get the change in orientation
 	GYRO_POS.x += GYRO_MOVEMENT.x * deltaTime;
 	GYRO_POS.y += GYRO_MOVEMENT.y * deltaTime;
 	GYRO_POS.z += GYRO_MOVEMENT.z * deltaTime;
@@ -78,32 +171,25 @@ void ReadGyro(I2C_HandleTypeDef *hi2c1, float deltaTime){
 const char* getGyroPosAsString() {
     char *buffer = malloc(100 * sizeof(char));
     size_t bufferSize = 100;
-    int x_int = (int)GYRO_POS.x;
-    int x_frac = (int)(100 * (GYRO_POS.x - x_int));
+    char x[10], y[10], z[10];
+    floatToString(GYRO_POS.x, x, 4);
+    floatToString(GYRO_POS.y, y, 4);
+    floatToString(GYRO_POS.z, z, 4);
 
-    int y_int = (int)GYRO_POS.y;
-    int y_frac = (int)(100 * (GYRO_POS.y - y_int));
 
-    int z_int = (int)GYRO_POS.z;
-    int z_frac = (int)(100 * (GYRO_POS.z - z_int));
-
-    snprintf(buffer, bufferSize, "GYRO_POS (degree) x: %d.%02d y: %d.%02d z: %d.%02d \n", x_int, x_frac, y_int, y_frac, z_int, z_frac);
+    snprintf(buffer, bufferSize, "GYRO_POS (degree) x: %s y: %s z: %s", x, y, z);
     return buffer;
 }
 
 const char* getGyroMovementAsString() {
     char *buffer = malloc(100 * sizeof(char));
     size_t bufferSize = 100;
-    int x_int = (int)GYRO_POS.x;
-    int x_frac = (int)(100 * (GYRO_MOVEMENT.x - x_int));
+    char x[10], y[10], z[10];
+    floatToString(GYRO_MOVEMENT.x, x, 4);
+    floatToString(GYRO_MOVEMENT.y, y, 4);
+    floatToString(GYRO_MOVEMENT.z, z, 4);
 
-    int y_int = (int)GYRO_POS.y;
-    int y_frac = (int)(100 * (GYRO_MOVEMENT.y - y_int));
-
-    int z_int = (int)GYRO_POS.z;
-    int z_frac = (int)(100 * (GYRO_MOVEMENT.z - z_int));
-
-    snprintf(buffer, bufferSize, "GYRO_MOVEMENT (degree\s) x: %d.%02d y: %d.%02d z: %d.%02d \n", x_int, x_frac, y_int, y_frac, z_int, z_frac);
+    snprintf(buffer, bufferSize, "GYRO_MOVEMENT (degreePsec) x: %s y: %s z: %s", x, y, z);
     return buffer;
 }
 
@@ -114,18 +200,20 @@ POS VELOCITY = {0.0f, 0.0f, 0.0f};
 POS PREVIOUS_VELOCITY = {0.0f, 0.0f, 0.0f};
 POS ACCEL = {0.0f, 0.0f, 0.0f};
 POS PREVIOUS_ACCEL = {0.0f, 0.0f, 0.0f};
+POS ACCEL_OFFSET = {-10.0f, 420.0f, 4090.0f};
+POS ACCEL_RAW = {0.0f, 0.0f, 0.0f};
 
 int checkAccel = 0, accelCode = 0;
 
-int AccelCheck(I2C_HandleTypeDef *hi2c1, uint8_t ACCEL_G){
+int AccelCheck(I2C_HandleTypeDef *hi2c, uint8_t ACCEL_G){
 	uint8_t chipID = 0;
 
-	if (HAL_I2C_Mem_Write(hi2c1, ACCEL_ADDR<<1, ACCEL_RANGE_REG, 1, &ACCEL_G, 1, 1000) != HAL_OK) {
+	if (HAL_I2C_Mem_Write(hi2c, ACCEL_ADDR<<1, ACCEL_RANGE_REG, 1, &ACCEL_G, 1, 1000) != HAL_OK) {
 		accelCode = 3;
 	}
 
 
-	HAL_StatusTypeDef status = HAL_I2C_Mem_Read(hi2c1, ACCEL_ADDR << 1, ACCEL_CHIP_ID_REG, 1, &chipID, 1, 1000);
+	HAL_StatusTypeDef status = HAL_I2C_Mem_Read(hi2c, ACCEL_ADDR << 1, ACCEL_CHIP_ID_REG, 1, &chipID, 1, 1000);
 	if (status == HAL_OK && chipID == ACCEL_CHIP_ID_DEFAULT) {
 		if (accelCode == 0) accelCode = 1;
 		return 1;
@@ -136,7 +224,7 @@ int AccelCheck(I2C_HandleTypeDef *hi2c1, uint8_t ACCEL_G){
 	}
 
 	ACCEL_ADDR = ACCEL_ADDR2;
-	status = HAL_I2C_Mem_Read(hi2c1, ACCEL_ADDR << 1, ACCEL_CHIP_ID_REG, 1, &chipID, 1, 1000);
+	status = HAL_I2C_Mem_Read(hi2c, ACCEL_ADDR << 1, ACCEL_CHIP_ID_REG, 1, &chipID, 1, 1000);
 	if (status == HAL_OK && chipID == ACCEL_CHIP_ID_DEFAULT) {
 		if (accelCode == 0) accelCode = 1;
 		return 1;
@@ -149,19 +237,62 @@ int AccelCheck(I2C_HandleTypeDef *hi2c1, uint8_t ACCEL_G){
 	return 0;
 }
 
-void UpdateRawAccelXYZ(I2C_HandleTypeDef *hi2c1){
-	raw_x = ReadRawData(hi2c1, ACCEL_ADDR, ACCEL_X_LSB, ACCEL_X_MSB);
-	raw_y = ReadRawData(hi2c1, ACCEL_ADDR, ACCEL_Y_LSB, ACCEL_Y_MSB);
-	raw_z = ReadRawData(hi2c1, ACCEL_ADDR, ACCEL_Z_LSB, ACCEL_Z_MSB);
+void AccelFilter(int16_t *raw_x, int16_t *raw_y, int16_t *raw_z){
+	const float upper_x = 2.0f; // because x data is below 0, we not use ACCEL_OFFSET
+	    const float lower_x = -247.0f;
+
+	    if (lower_x < *raw_x && *raw_x < upper_x) {
+	        *raw_x = 0;
+	    } else {
+	    	if (*raw_x < lower_x) *raw_x -= lower_x;
+	    	else if (*raw_x > upper_x) *raw_x -= upper_x;
+	    }
+
+
+	    if (-ACCEL_OFFSET.y < *raw_y && *raw_y < ACCEL_OFFSET.y) {
+	        *raw_y = 0;
+	    } else {
+	        *raw_y = (*raw_y > 0) ? (*raw_y - ACCEL_OFFSET.y) : (*raw_y + ACCEL_OFFSET.y);
+	    }
+
+
+	    if (-ACCEL_OFFSET.z < *raw_z && *raw_z < ACCEL_OFFSET.z) {
+	        *raw_z = 0;
+	    } else {
+	        *raw_z = (*raw_z > 0) ? (*raw_z - ACCEL_OFFSET.z) : (*raw_z + ACCEL_OFFSET.z);
+	    }
 }
 
-void ReadAccel(I2C_HandleTypeDef *hi2c1, float deltaTime){
-	UpdateRawAccelXYZ(hi2c1);
+
+void UpdateRawAccelXYZ(I2C_HandleTypeDef *hi2c){
+    raw_x = ReadRawData(hi2c, ACCEL_ADDR, ACCEL_X_LSB, ACCEL_X_MSB);
+    raw_y = ReadRawData(hi2c, ACCEL_ADDR, ACCEL_Y_LSB, ACCEL_Y_MSB);
+    raw_z = ReadRawData(hi2c, ACCEL_ADDR, ACCEL_Z_LSB, ACCEL_Z_MSB);
+
+    AccelFilter(&raw_x, &raw_y, &raw_z);
+
+    ACCEL_RAW.x = raw_x;
+    ACCEL_RAW.y = raw_y;
+    ACCEL_RAW.z = raw_z;
+}
+
+
+void ReadAccel(I2C_HandleTypeDef *hi2c, float deltaTime){
+	UpdateRawAccelXYZ(hi2c);
+
+//	ACCEL_OFFSET.x = offset_x;
+//	ACCEL_OFFSET.y = offset_y;
+//	ACCEL_OFFSET.z = offset_z;
+
+	// Apply offsets to the raw values
+	int16_t corrected_x = raw_x - GYRO_OFFSET.x;
+	int16_t corrected_y = raw_y - GYRO_OFFSET.y;
+	int16_t corrected_z = raw_z - GYRO_OFFSET.z;
 
 	float scaleFactor = (2.0 * 9.81) / 32768.0;
-	float ACCEL_X = (raw_x * scaleFactor * ACCEL_ERROR_MULTIPLIER) + ACCEL_ERROR_CONSTANT;
-	float ACCEL_Y = (raw_y * scaleFactor * ACCEL_ERROR_MULTIPLIER) + ACCEL_ERROR_CONSTANT;
-	float ACCEL_Z = (raw_z * scaleFactor * ACCEL_ERROR_MULTIPLIER) + ACCEL_ERROR_CONSTANT;
+	float ACCEL_X = (corrected_x * scaleFactor * ACCEL_ERROR_MULTIPLIER) + ACCEL_ERROR_CONSTANT;
+	float ACCEL_Y = (corrected_y * scaleFactor * ACCEL_ERROR_MULTIPLIER) + ACCEL_ERROR_CONSTANT;
+	float ACCEL_Z = (corrected_z * scaleFactor * ACCEL_ERROR_MULTIPLIER) + ACCEL_ERROR_CONSTANT;
 
 	if (ACCEL_X != PREVIOUS_ACCEL.x || ACCEL_Y != PREVIOUS_ACCEL.y || ACCEL_Z != PREVIOUS_ACCEL.z) PREVIOUS_ACCEL = ACCEL;
 	ACCEL.x = ACCEL_X;
@@ -182,113 +313,236 @@ void ReadAccel(I2C_HandleTypeDef *hi2c1, float deltaTime){
 const char* getAccelAsString() {
     char *buffer = malloc(100 * sizeof(char));
     size_t bufferSize = 100;
-    int x_int = (int)GYRO_POS.x;
-    int x_frac = (int)(100 * (ACCEL.x - x_int));
+    char x[10], y[10], z[10];
+    floatToString(ACCEL.x, x, 4);
+    floatToString(ACCEL.y, y, 4);
+    floatToString(ACCEL.z, z, 4);
 
-    int y_int = (int)GYRO_POS.y;
-    int y_frac = (int)(100 * (ACCEL.y - y_int));
-
-    int z_int = (int)GYRO_POS.z;
-    int z_frac = (int)(100 * (ACCEL.z - z_int));
-
-    snprintf(buffer, bufferSize, "ACCELERATION (m/s^2) x: %d.%02d y: %d.%02d z: %d.%02d \n", x_int, x_frac, y_int, y_frac, z_int, z_frac);
+    snprintf(buffer, bufferSize, "ACCELERATION (m/s^2) x: %s y: %s z: %s",x,y,z);
     return buffer;
 }
 
 const char* getVelocityAsString() {
     char *buffer = malloc(100 * sizeof(char));
     size_t bufferSize = 100;
-    int x_int = (int)GYRO_POS.x;
-    int x_frac = (int)(100 * (VELOCITY.x - x_int));
+    char x[10], y[10], z[10];
+    floatToString(VELOCITY.x, x, 4);
+    floatToString(VELOCITY.y, y, 4);
+    floatToString(VELOCITY.z, z, 4);
 
-    int y_int = (int)GYRO_POS.y;
-    int y_frac = (int)(100 * (VELOCITY.y - y_int));
-
-    int z_int = (int)GYRO_POS.z;
-    int z_frac = (int)(100 * (VELOCITY.z - z_int));
-
-    snprintf(buffer, bufferSize, "VELOCITY (m/s) x: %d.%02d y: %d.%02d z: %d.%02d \n", x_int, x_frac, y_int, y_frac, z_int, z_frac);
+    snprintf(buffer, bufferSize, "VELOCITY (m/s) x: %s y: %s z: %s",x,y,z);
     return buffer;
 }
 
 // magnetometer function
+uint8_t MAG_ADDR = MAG_ADDR1;
+
 POS MAG_POS = {0.0f, 0.0f, 0.0f};
+POS MAG_RAW = {0.0f, 0.0f, 0.0f};
 
 float orientation=0, heading=0;
 int checkMag= 0;
 
-int MagCheck(I2C_HandleTypeDef *hi2c1){
-	uint8_t chipID = 0;
-	int infoCode = 0;
+void InitMagnetometer(I2C_HandleTypeDef *hi2c) {
+    uint8_t regValue = 0;
 
-	HAL_StatusTypeDef status = HAL_I2C_Mem_Read(hi2c1, MAG_ADDR << 1, MAG_CHIP_ID_REG, 1, &chipID, 1, 1000);
-	if (status == HAL_OK && chipID == MAG_CHIP_ID_DEFAULT) {
-		infoCode = 1;
-		return infoCode;
-	}
-	else if (status == HAL_OK && chipID != MAG_CHIP_ID_DEFAULT){
-		infoCode = 2;
-	}
+    // Soft reset
+    regValue = 0x82; // Setting both soft reset bits
+    HAL_I2C_Mem_Write(hi2c, MAG_ADDR << 1, 0x4B, 1, &regValue, 1, HAL_MAX_DELAY);
+    HAL_Delay(50); // Wait for reset to complete
 
-	return infoCode;
+    // Power up the magnetometer to Sleep mode (transition step to Active mode)
+    regValue = 0x01; // Setting the power control bit to 1 (Sleep mode)
+    HAL_I2C_Mem_Write(hi2c, MAG_ADDR << 1, 0x4B, 1, &regValue, 1, HAL_MAX_DELAY);
+    HAL_Delay(10); // Wait to stabilize
+}
+
+HAL_StatusTypeDef CheckAndSetActiveModeMag(I2C_HandleTypeDef *hi2c) {
+    uint8_t opMode = NORMAL_MODE; // Set to Normal Mode
+
+    // Write the mode to the operation mode register
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Write(hi2c, (MAG_ADDR << 1), MAG_OP_MODE_REG, 1, &opMode, 1, HAL_MAX_DELAY);
+
+    return status;
+}
+
+int MagCheck(I2C_HandleTypeDef *hi2c) {
+    uint8_t chipID = 0;
+    int infoCode = 0;
+    HAL_StatusTypeDef status;
+    uint8_t addresses[] = {MAG_ADDR1, MAG_ADDR2, MAG_ADDR3, MAG_ADDR4}; // assuming these are defined globally
+    int num_addresses = sizeof(addresses) / sizeof(addresses[0]);
+
+    for (int i = 0; i < num_addresses; i++) {
+        MAG_ADDR = addresses[i];
+        InitMagnetometer(hi2c);
+        status = CheckAndSetActiveModeMag(hi2c);
+
+        if (status != HAL_OK) {
+            continue; // If there's an error setting the mode, try the next address
+        }
+
+        status = HAL_I2C_Mem_Read(hi2c, MAG_ADDR << 1, MAG_CHIP_ID_REG, 1, &chipID, 1, HAL_MAX_DELAY);
+        if (status == HAL_OK && chipID == MAG_CHIP_ID_DEFAULT) {
+            infoCode = 1; // Successfully found and initialized the magnetometer
+            break;
+        }
+    }
+
+    return infoCode;
+}
+
+void ReadRawBurstMag(I2C_HandleTypeDef *hi2c, int16_t *dataX, int16_t *dataY, int16_t *dataZ) {
+    uint8_t rawData[6] = {0}; // 2 bytes each for X, Y, and Z
+
+    // Burst read from the magnetometer
+    if (HAL_I2C_Mem_Read(hi2c, MAG_ADDR << 1, MAG_X_LSB, 1, rawData, 6, 1000) != HAL_OK) {
+        *dataX = *dataY = *dataZ = -200;
+        return;
+    }
+
+    // Extract X data
+       *dataX = ((int16_t)rawData[1] << 5) | (rawData[0] & 0x1F);
+       if (*dataX & (1 << 12)) { // If 12th bit is set, the number is negative
+           *dataX -= (1 << 13); // Convert to two's complement
+       }
+
+       // Extract Y data
+       *dataY = ((int16_t)rawData[3] << 5) | (rawData[2] & 0x1F);
+       if (*dataY & (1 << 12)) {
+           *dataY -= (1 << 13);
+       }
+
+       // Extract Z data
+       *dataZ = ((int16_t)rawData[5] << 7) | (rawData[4] & 0x7F);
+       if (*dataZ & (1 << 14)) {
+           *dataZ -= (1 << 15);
+       }
+}
+
+void MagFilter(int16_t *raw_x, int16_t *raw_y, int16_t *raw_z){
+	const float upper_x = 0.0, lower_x=-70.0,
+				upper_y = 60.0, lower_y = 0.0,
+				upper_z = -100.0, lower_z = -300.0;
+
+		if (lower_x < *raw_x && *raw_x < upper_x) {
+		        *raw_x = 0;
+		    } else {
+		    	if (*raw_x < lower_x) *raw_x -= lower_x;
+		    	else if (*raw_x > upper_x) *raw_x -= upper_x;
+		    }
+
+		if (lower_y < *raw_y && *raw_y < upper_y) {
+		        *raw_y = 0;
+		    } else {
+		    	if (*raw_y < lower_y) *raw_y -= lower_y;
+		    	else if (*raw_y > upper_y) *raw_y -= upper_y;
+		    }
+
+		if (lower_z < *raw_z && *raw_z < upper_z) {
+		        *raw_z = 0;
+		    } else {
+		    	if (*raw_z < lower_z) *raw_z -= lower_z;
+		    	else if (*raw_z > upper_z) *raw_z -= upper_z;
+		    }
+}
+
+void UpdateRawMagXYZ(I2C_HandleTypeDef *hi2c){
+	ReadRawBurstMag(hi2c, &raw_x, &raw_y, &raw_z);
+	MagFilter(&raw_x, &raw_y, &raw_z);
+
+
+
+	MAG_RAW.x = raw_x;
+	MAG_RAW.y = raw_y;
+	MAG_RAW.z = raw_z;
 
 }
 
-void UpdateRawMagXYZ(I2C_HandleTypeDef *hi2c1){
-	raw_x = ReadRawData(hi2c1, MAG_ADDR, MAG_X_LSB, MAG_X_MSB);
-	raw_y = ReadRawData(hi2c1, MAG_ADDR, MAG_Y_LSB, MAG_Y_MSB);
-	raw_z = ReadRawData(hi2c1, MAG_ADDR, MAG_Z_LSB, MAG_Z_MSB);
+const int DetermineOrientation(float x, float y, float* degree) {
+    // North
+    if (x == 0 && y == 0) {
+        *degree = 0;
+        return 1;
+    }
+
+    // Transition from North to East
+    if (x <= -41 && x > 0 && y <= 57 && y > 0) {
+        *degree = (x/(-41)) * 90;  // scaling to get degrees
+        return 12;
+    }
+
+    // Transition from North to West
+    if (x >= -9 && x < 0 && y >= -41 && y < 0) {
+        *degree = (-x/9) * 90;  // scaling to get degrees
+        return 13;
+    }
+
+    // East
+    if (x == -41 && y == 57) {
+        *degree = 90;
+        return 2;
+    }
+
+    // West
+    if (x == -9 && y == -41) {
+        *degree = -90;
+        return 3;
+    }
+
+    // South
+    if (x == -105 && y == 0) {
+        *degree = 180;
+        return 4;
+    }
+
+    // Transition from South to East
+    if (x <= -41 && x > -105 && y <= 57 && y > 0) {
+        *degree = 90 + (1 - (x+41)/64) * 90;  // scaling to get degrees
+        return 42;
+    }
+
+    // Transition from South to West
+    if (x >= -9 && x < -105 && y >= 41 && y < 0) {
+        *degree = -90 - (1 + (x+105)/96) * 90;  // scaling to get degrees
+        return 43;
+    }
+
+    return 0;  // Default or Unknown
 }
 
-const int DetermineOrientation(float x, float y) {
-    heading = atan2(y, x) * (180.0 / M_PI); // Calculate the angle
-
-    if (heading < 0)
-        heading += 360;
-
-    if ((heading >= 0 && heading < 45) || (heading >= 315 && heading <= 360))
-        return 1; // North
-    if (heading >= 45 && heading < 135)
-        return 2; // East
-    if (heading >= 135 && heading < 225)
-        return 3; // South
-    if (heading >= 225 && heading < 315)
-        return 4; // West
-
-    return 0;
-}
-
-void ReadMag(I2C_HandleTypeDef *hi2c1) {
-	UpdateRawMagXYZ(hi2c1);
+void ReadMag(I2C_HandleTypeDef *hi2c) {
+	UpdateRawMagXYZ(hi2c);
 
 	MAG_POS.x = raw_x;
 	MAG_POS.y = raw_y;
 	MAG_POS.z = raw_z;
 
-    orientation = DetermineOrientation(MAG_POS.x, MAG_POS.y);
+    orientation = DetermineOrientation(MAG_POS.x, MAG_POS.y, &heading);
 }
 
+
 const char* getOrientationAsString(){
-	if (orientation == 1) return "Orientation: NORTH\n";
-	if (orientation == 2) return "Orientation: EAST\n";
-	if (orientation == 3) return "Orientation: SOUTH\n";
-	if (orientation == 4) return "Orientation: WEST\n";
-	return "Orientation: UNKNOWN\n";
+	if (orientation == 1) return "Orientation: NORTH";
+	if (orientation == 12) return "Orientation: NORTH-EAST";
+	if (orientation == 13) return "Orientation: NORTH-WEST";
+	if (orientation == 2) return "Orientation: EAST";
+	if (orientation == 3) return "Orientation: WEST";
+	if (orientation == 4) return "Orientation: SOUTH";
+	if (orientation == 42) return "Orientation: SOUTH-EAST";
+	if (orientation == 43) return "Orientation: SOUTH-WEST";
+	return "Orientation: UNKNOWN";
 }
 
 const char* getMagPosAsString() {
     char *buffer = malloc(256 * sizeof(char));
     size_t bufferSize = 256;
-    int x_int = (int)MAG_POS.x;
-    int x_frac = (int)(100 * (MAG_POS.x - x_int));
+    char x[10], y[10], z[10];
+    floatToString(MAG_POS.x, x, 4);
+    floatToString(MAG_POS.y, y, 4);
+    floatToString(MAG_POS.z, z, 4);
 
-    int y_int = (int)MAG_POS.y;
-    int y_frac = (int)(100 * (MAG_POS.y - y_int));
-
-    int z_int = (int)MAG_POS.z;
-    int z_frac = (int)(100 * (MAG_POS.z - z_int));
-
-    snprintf(buffer, bufferSize, "MAG_POS (degree) x: %d.%02d y: %d.%02d z: %d.%02d \n", x_int, x_frac, y_int, y_frac, z_int, z_frac);
+    snprintf(buffer, bufferSize, "MAG_POS (degree) : %s y: %s z: %s",x,y,z);
     return buffer;
 }
 
@@ -297,15 +551,53 @@ POS CURRENT_POS = {0.0f, 0.0f, 0.0f};
 POS PREVIOUS_POS = {0.0f, 0.0f, 0.0f};
 
 float currentHeading = 0.0f;
+int ERROR_PRINT[3] = {0,0,0};
+float BMX055_data[BMX055_SIZE], BMX055_raw[9];
 
-void BMX055_init(I2C_HandleTypeDef *hi2c){ //initialization for BMX055
+void BMX055_init(I2C_HandleTypeDef *hi2c, float timer){ //initialization for BMX055
 	checkGyro = GyroCheck(hi2c);
 	checkAccel = AccelCheck(hi2c, ACCEL_RANGE_8G);
 	checkMag = MagCheck(hi2c);
 
-	if (checkGyro == 1) ReadGyro(hi2c, 0.01f);
-	if (checkAccel == 1) ReadAccel(hi2c, 0.01f);
+	if (checkGyro == 1) ReadGyro(hi2c, timer);
+	if (checkAccel == 1) ReadAccel(hi2c, timer);
 	if (checkMag == 1) ReadMag(hi2c);
+
+	BMX055_data[0] = GYRO_MOVEMENT.x;
+	BMX055_data[1] = GYRO_MOVEMENT.y;
+	BMX055_data[2] = GYRO_MOVEMENT.z;
+	BMX055_data[3] = GYRO_POS.x;
+	BMX055_data[4] = GYRO_POS.y;
+	BMX055_data[5] = GYRO_POS.z;
+	BMX055_data[6] = ACCEL.x;
+	BMX055_data[7] = ACCEL.y;
+	BMX055_data[8] = ACCEL.z;
+	BMX055_data[9] = VELOCITY.x;
+	BMX055_data[10] = VELOCITY.y;
+	BMX055_data[11] = VELOCITY.z;
+	BMX055_data[12] = MAG_POS.x;
+	BMX055_data[13] = MAG_POS.y;
+	BMX055_data[14] = MAG_POS.z;
+	BMX055_data[15] = GYRO_OFFSET.x;
+	BMX055_data[16] = GYRO_OFFSET.y;
+	BMX055_data[17] = GYRO_OFFSET.z;
+	BMX055_data[18] = ACCEL_OFFSET.x;
+	BMX055_data[19] = ACCEL_OFFSET.y;
+	BMX055_data[20] = ACCEL_OFFSET.z;
+	BMX055_data[21] = heading;
+
+	BMX055_raw[0] = GYRO_RAW.x;
+	BMX055_raw[1] = GYRO_RAW.y;
+	BMX055_raw[2] = GYRO_RAW.z;
+	BMX055_raw[3] = ACCEL_RAW.x;
+	BMX055_raw[4] = ACCEL_RAW.y;
+	BMX055_raw[5] = ACCEL_RAW.z;
+	BMX055_raw[6] = MAG_RAW.x;
+	BMX055_raw[7] = MAG_RAW.y;
+	BMX055_raw[8] = MAG_RAW.z;
+
+
+
 }
 
 const RobotActivity DetectActivity() {
@@ -420,3 +712,29 @@ const char* getWheelSlipAsString(WheelStatus wheel){
 	        default:                return "Invalid";  // Just in case
 	    }
 }
+
+const char* getCurrentPosAsString() {
+    char *buffer = malloc(100 * sizeof(char));
+    size_t bufferSize = 100;
+    char x[10], y[10], z[10];
+    floatToString(CURRENT_POS.x, x, 4);
+    floatToString(CURRENT_POS.y, y, 4);
+    floatToString(CURRENT_POS.z, z, 4);
+
+    snprintf(buffer, bufferSize, "CURRENT POS (m/s) x: %s y: %s z: %s",x,y,z);
+    return buffer;
+}
+
+const char* getPreviousPosAsString() {
+    char *buffer = malloc(100 * sizeof(char));
+    size_t bufferSize = 100;
+    char x[10], y[10], z[10];
+    floatToString(PREVIOUS_POS.x, x, 4);
+    floatToString(PREVIOUS_POS.y, y, 4);
+    floatToString(PREVIOUS_POS.z, z, 4);
+
+    snprintf(buffer, bufferSize, "PREV POS (m/s) x: %s y: %s z: %s",x,y,z);
+    return buffer;
+}
+
+
