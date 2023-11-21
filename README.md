@@ -141,6 +141,14 @@ ros2 run your_python_package_name bmx055
 
 Replace placeholders such as `your_python_package_name` with actual information specific to your project.
 
+## VARIABLE AND FUNCTION EXPLANATION
+
+**`typedef struct POS`**:  
+struct contains float x, float y and float z
+
+**`float MAGDEGREE`**:  
+contain converted magnetometer rawdata to degree value from range 0 to 350
+
 ## Reference
 
 - BMX055 DATASHEET https://www.mouser.com/datasheet/2/783/BST_BMX055_DS000-1509552.pdf
