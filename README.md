@@ -40,7 +40,7 @@ The BMX055 is a 9-axis sensor from Bosch, consisting of a gyroscope, acceleromet
 ## Hardware Setup
 
 - Connect SDA and SCK with any i2c SDA SDK pin
-- Connect 3.3v tp 3.3 and ground to ground on STM32 board
+- Connect 3.3v to 3.3 and ground to ground on STM32 board
 - short(solder) jp7 on BMX055 sensor
 
 
@@ -58,6 +58,8 @@ Download the source files and include them in the appropriate folders of your `F
 Add the following code for BMX055 initialization inside the `StartTask02()` loop.
 
 ```c
+float deltaTime = 0.015; //for now please use this value
+
 void StartTask02(void *argument)
 {
   /* USER CODE BEGIN StartTask02 */
