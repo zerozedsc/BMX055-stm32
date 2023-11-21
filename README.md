@@ -48,14 +48,14 @@ The BMX055 is a 9-axis sensor from Bosch, consisting of a gyroscope, acceleromet
 
 ### 1. Download Source Files
 
-Download the source files and include them in the appropriate folders of your F446RE project.
+Download the source files and include them in the appropriate folders of your `F446RE project`.
 
 - Download `bmx055.c` and include it in the `Core/Src` folder inside the F446RE project folder.
 - Download `bmx055.h` and include it in the `Core/Inc` folder inside the F446RE project folder.
 
 ### 2. Sensor Initialization 
 
-Add the following code for BMX055 initialization inside the StartTask02 loop.
+Add the following code for BMX055 initialization inside the `StartTask02()` loop.
 
 ```c
 void StartTask02(void *argument)
@@ -73,7 +73,7 @@ void StartTask02(void *argument)
 
 ### 3. Set Publisher Function
 
-Define the BMX055 publisher function inside main.c.
+Define the BMX055 publisher function inside `main.c`.
 
 ```c
 // inside main.c
@@ -113,11 +113,11 @@ RCCHECK(rclc_publisher_init_best_effort(
 
 ### 5. Configure I2C Connection
 
-Set up I2C connection settings (default with a clock speed of 100 kHz) in the .ioc file.
+Set up `I2C connection settings` (default with a clock speed of 100 kHz) in the `.ioc file`.
 
 ### 6. Python ROS Setup
 
-For the bmx055.py file, set it up inside the Python ROS package. In setup.py, include the entry point for the bmx055 script.
+For the `bmx055.py` file, set it up inside the Python ROS package. In `setup.py`, include the entry point for the bmx055 script.
 
 ```python
 setup(
