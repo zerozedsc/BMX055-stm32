@@ -36,7 +36,14 @@ The BMX055 is a 9-axis sensor from Bosch, consisting of a gyroscope, acceleromet
 - Python File:
   - Used for raw data analysis.
   - Subscribes to data from the microcontroller with ROS.
- 
+
+## Hardware Setup
+
+- Connect SDA and SCK with any i2c SDA SDK pin
+- Connect 3.3v tp 3.3 and ground to ground on STM32 board
+- short(solder) jp7 on BMX055 sensor
+
+
 ## Installation
 
 ### 1. Download Source Files
