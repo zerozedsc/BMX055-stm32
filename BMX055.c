@@ -385,7 +385,7 @@ POS AVERAGE_DEGREE10[DEGREE10] = {
 		    { 0.0, -1.8, 0.0 } // 350
 };
 
-float degree=0, heading=0;
+float MAGDEGREE=0, heading=0;
 int checkMag= 0, magCounter=0;
 float magRaw10[2][10] = {0};
 
@@ -547,7 +547,7 @@ void ReadMag(I2C_HandleTypeDef *hi2c) {
 	MAG_POS.y = raw_y;
 	MAG_POS.z = raw_z;
 
-    degree = (float)DetermineOrientation(MAG_POS.x, MAG_POS.y, 5.0);
+    MAGDEGREE = (float)DetermineOrientation(MAG_POS.x, MAG_POS.y, 5.0);
     magCounter++;
 }
 
@@ -564,7 +564,7 @@ const char* getOrientationAsString(){
 	char *buffer = malloc(256 * sizeof(char));
 	size_t bufferSize = 256;
 	char degreeStr[10];
-	floatToString(degree, degreeStr, 2);
+	floatToString(MAGDEGREE, degreeStr, 2);
 	snprintf(buffer, bufferSize, "DEGREE : %s",degreeStr);
 
 	return buffer;
@@ -623,7 +623,7 @@ void BMX055_init(I2C_HandleTypeDef *hi2c, float timer){ //initialization for BMX
 //	BMX055_data[20] = ACCEL_OFFSET.z;
 //	BMX055_data[21] = degree;
 
-	BMX055_data[0] = degree;
+	BMX055_data[0] = MAGDEGREE;
 
 	BMX055_raw[0] = GYRO_RAW.x;
 	BMX055_raw[1] = GYRO_RAW.y;

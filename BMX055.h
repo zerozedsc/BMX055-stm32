@@ -134,7 +134,7 @@ extern POS MAG_OFFSET;
 extern POS MAG_RAW;
 
 extern int checkMag;
-extern float degree, heading, BMX055_data[BMX055_SIZE], BMX055_raw[9]; //heading and orientation value from magnetometer
+extern float MAGDEGREE, heading, BMX055_data[BMX055_SIZE], BMX055_raw[9]; //heading and orientation value from magnetometer
 
 int MagCheck(I2C_HandleTypeDef *hi2c);
 void ReadMag(I2C_HandleTypeDef *hi2c);
