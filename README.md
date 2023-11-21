@@ -149,7 +149,7 @@ Replace placeholders such as `your_python_package_name` with actual information 
 struct contains `float x`, `float y` and `float z`
 
 **`float MAGDEGREE`**:  
-contain converted magnetometer rawdata to degree value from range 0 to 350
+contain converted magnetometer rawdata to degree value from range 0 to 350 step by 10
 
 ## Reference
 
