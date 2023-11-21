@@ -12,7 +12,9 @@
 #include <BMX055.h>
 #include <math.h>
 #include <main.h>
+#include <float.h>
 
+// test function
 void Imu_init(I2C_HandleTypeDef hi2c1)
 {
 	HAL_I2C_Mem_Write(&hi2c1, 0x19<<1, 0x0F, I2C_MEMADD_SIZE_8BIT, 0x03, 1, 1000);
@@ -138,9 +140,13 @@ void GyroFilter(int16_t *raw_x, int16_t *raw_y, int16_t *raw_z){
 }
 
 void UpdateRawGyroXYZ(I2C_HandleTypeDef *hi2c1){
-    raw_x = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_X_LSB);
-    raw_y = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_Y_LSB);
-    raw_z = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_Z_LSB);
+//    raw_x = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_X_LSB);
+//    raw_y = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_Y_LSB);
+//    raw_z = ReadRawDataBurst(hi2c1, GYRO_ADDR, GYRO_Z_LSB);
+
+    raw_x = ReadRawData(hi2c1, GYRO_ADDR, GYRO_X_LSB, GYRO_X_MSB);
+    raw_y = ReadRawData(hi2c1, GYRO_ADDR, GYRO_Y_LSB, GYRO_Y_MSB);
+    raw_z = ReadRawData(hi2c1, GYRO_ADDR, GYRO_Z_LSB, GYRO_Z_MSB);
 
     GyroFilter(&raw_x, &raw_y, &raw_z);
 
@@ -340,8 +346,48 @@ uint8_t MAG_ADDR = MAG_ADDR1;
 POS MAG_POS = {0.0f, 0.0f, 0.0f};
 POS MAG_RAW = {0.0f, 0.0f, 0.0f};
 
-float orientation=0, heading=0;
-int checkMag= 0;
+POS AVERAGE_DEGREE10[DEGREE10] = {
+		{ 0.0, 0.0, 0.0 }, // 0
+		    { 0.0, 1.8, 0.0 }, // 10
+		    { -2.0, 3.2, 0.0 }, // 20
+		    { -9.8, 0.0, 0.0 }, // 30
+		    { -18.0, 5.2, 0.0 }, // 40
+		    { -42.0, 3.2, 0.0 }, // 50
+		    { -46.8, 6.4, 0.0 }, // 60
+		    { -52.8, 5.6, 0.0 }, // 70
+		    { -75.4, 0.0, 0.0 }, // 80
+		    { -79.2, -2.2, 0.0 }, // 90
+		    { -98.0, 0.0, 0.0 }, // 100
+		    { -110.0, -4.4, 0.0 }, // 110
+		    { -114.8, -19.8, 0.0 }, // 120
+		    { -111.6, -34.2, 0.0 }, // 130
+		    { -114.8, -46.2, 0.0 }, // 140
+		    { -115.4, -59.8, 0.0 }, // 150
+		    { -114.8, -76.6, 0.0 }, // 160
+		    { -98.0, -86.2, 0.0 }, // 170
+		    { -80.0, -100.2, 0.0 }, // 180
+		    { -71.6, -105.8, 0.0 }, // 190
+		    { -53.4, -115.0, 0.0 }, // 200
+		    { -41.2, -119.8, 0.0 }, // 210
+		    { -20.4, -115.0, 0.0 }, // 220
+		    { -14.2, -113.4, 0.0 }, // 230
+		    { -5.6, -119.0, 0.0 }, // 240
+		    { 0.0, -110.2, 0.0 }, // 250
+		    { 0.0, -103.0, 0.0 }, // 260
+		    { 0.0, -85.8, 0.0 }, // 270
+		    { 0.0, -79.8, 0.0 }, // 280
+		    { 0.0, -60.0, 0.0 }, // 290
+		    { 0.0, -57.0, 0.0 }, // 300
+		    { 0.0, -45.0, 0.0 }, // 310
+		    { 0.0, -36.0, 0.0 }, // 320
+		    { 0.0, -14.4, 0.0 }, // 330
+		    { 0.0, -8.4, 0.0 }, // 340
+		    { 0.0, -1.8, 0.0 } // 350
+};
+
+float degree=0, heading=0;
+int checkMag= 0, magCounter=0;
+float magRaw10[2][10] = {0};
 
 void InitMagnetometer(I2C_HandleTypeDef *hi2c) {
     uint8_t regValue = 0;
@@ -421,9 +467,9 @@ void ReadRawBurstMag(I2C_HandleTypeDef *hi2c, int16_t *dataX, int16_t *dataY, in
 }
 
 void MagFilter(int16_t *raw_x, int16_t *raw_y, int16_t *raw_z){
-	const float upper_x = 0.0, lower_x=-70.0,
-				upper_y = 60.0, lower_y = 0.0,
-				upper_z = -100.0, lower_z = -300.0;
+	const float upper_x = 0.0, lower_x=-65.0, //-70.0, 0
+				upper_y = 45.0, lower_y = 0.0, //60.0, 0
+				upper_z = -100.0, lower_z = -300.0; //-100, -300
 
 		if (lower_x < *raw_x && *raw_x < upper_x) {
 		        *raw_x = 0;
@@ -451,64 +497,47 @@ void UpdateRawMagXYZ(I2C_HandleTypeDef *hi2c){
 	ReadRawBurstMag(hi2c, &raw_x, &raw_y, &raw_z);
 	MagFilter(&raw_x, &raw_y, &raw_z);
 
-
-
 	MAG_RAW.x = raw_x;
 	MAG_RAW.y = raw_y;
 	MAG_RAW.z = raw_z;
 
 }
 
-const int DetermineOrientation(float x, float y, float* degree) {
-    // North
-    if (x == 0 && y == 0) {
-        *degree = 0;
-        return 1;
-    }
+const int DetermineOrientation(float x, float y, float threshold) {
+	float min_difference = FLT_MAX;
+	int matching_key = -1;
+	float X=0, Y=0;
+	magRaw10[0][magCounter%10] = x;
+	magRaw10[1][magCounter%10] = y;
 
-    // Transition from North to East
-    if (x <= -41 && x > 0 && y <= 57 && y > 0) {
-        *degree = (x/(-41)) * 90;  // scaling to get degrees
-        return 12;
-    }
+	for (int j=0; j<10; j++){
+		X+=magRaw10[0][j];
+		Y+=magRaw10[1][j];
+	}
+	X/=10;
+	Y/=10;
 
-    // Transition from North to West
-    if (x >= -9 && x < 0 && y >= -41 && y < 0) {
-        *degree = (-x/9) * 90;  // scaling to get degrees
-        return 13;
-    }
+	for (int i=0; i<DEGREE10; i++){
+		float difference_x = X - AVERAGE_DEGREE10[i].x;
+		difference_x = difference_x >= 0 ? difference_x:difference_x*-1;
+		float difference_y = Y - AVERAGE_DEGREE10[i].y;
+		difference_y = difference_y >= 0 ? difference_y:difference_y*-1;
 
-    // East
-    if (x == -41 && y == 57) {
-        *degree = 90;
-        return 2;
-    }
+		float total_difference = difference_x + difference_y;
 
-    // West
-    if (x == -9 && y == -41) {
-        *degree = -90;
-        return 3;
-    }
+		if (total_difference < threshold){
+			matching_key = i * 10;
+			break;
+		}
+		else if (total_difference < min_difference){
+			min_difference = total_difference;
+			matching_key = i * 10;
+		}
 
-    // South
-    if (x == -105 && y == 0) {
-        *degree = 180;
-        return 4;
-    }
+	}
 
-    // Transition from South to East
-    if (x <= -41 && x > -105 && y <= 57 && y > 0) {
-        *degree = 90 + (1 - (x+41)/64) * 90;  // scaling to get degrees
-        return 42;
-    }
+	return matching_key;
 
-    // Transition from South to West
-    if (x >= -9 && x < -105 && y >= 41 && y < 0) {
-        *degree = -90 - (1 + (x+105)/96) * 90;  // scaling to get degrees
-        return 43;
-    }
-
-    return 0;  // Default or Unknown
 }
 
 void ReadMag(I2C_HandleTypeDef *hi2c) {
@@ -518,20 +547,28 @@ void ReadMag(I2C_HandleTypeDef *hi2c) {
 	MAG_POS.y = raw_y;
 	MAG_POS.z = raw_z;
 
-    orientation = DetermineOrientation(MAG_POS.x, MAG_POS.y, &heading);
+    degree = (float)DetermineOrientation(MAG_POS.x, MAG_POS.y, 5.0);
+    magCounter++;
 }
 
 
 const char* getOrientationAsString(){
-	if (orientation == 1) return "Orientation: NORTH";
-	if (orientation == 12) return "Orientation: NORTH-EAST";
-	if (orientation == 13) return "Orientation: NORTH-WEST";
-	if (orientation == 2) return "Orientation: EAST";
-	if (orientation == 3) return "Orientation: WEST";
-	if (orientation == 4) return "Orientation: SOUTH";
-	if (orientation == 42) return "Orientation: SOUTH-EAST";
-	if (orientation == 43) return "Orientation: SOUTH-WEST";
-	return "Orientation: UNKNOWN";
+//	if (orientation == 1) return "Orientation: NORTH";
+//	if (orientation == 12) return "Orientation: NORTH-EAST";
+//	if (orientation == 13) return "Orientation: NORTH-WEST";
+//	if (orientation == 2) return "Orientation: EAST";
+//	if (orientation == 3) return "Orientation: WEST";
+//	if (orientation == 4) return "Orientation: SOUTH";
+//	if (orientation == 42) return "Orientation: SOUTH-EAST";
+//	if (orientation == 43) return "Orientation: SOUTH-WEST";
+	char *buffer = malloc(256 * sizeof(char));
+	size_t bufferSize = 256;
+	char degreeStr[10];
+	floatToString(degree, degreeStr, 2);
+	snprintf(buffer, bufferSize, "DEGREE : %s",degreeStr);
+
+	return buffer;
+
 }
 
 const char* getMagPosAsString() {
@@ -563,28 +600,30 @@ void BMX055_init(I2C_HandleTypeDef *hi2c, float timer){ //initialization for BMX
 	if (checkAccel == 1) ReadAccel(hi2c, timer);
 	if (checkMag == 1) ReadMag(hi2c);
 
-	BMX055_data[0] = GYRO_MOVEMENT.x;
-	BMX055_data[1] = GYRO_MOVEMENT.y;
-	BMX055_data[2] = GYRO_MOVEMENT.z;
-	BMX055_data[3] = GYRO_POS.x;
-	BMX055_data[4] = GYRO_POS.y;
-	BMX055_data[5] = GYRO_POS.z;
-	BMX055_data[6] = ACCEL.x;
-	BMX055_data[7] = ACCEL.y;
-	BMX055_data[8] = ACCEL.z;
-	BMX055_data[9] = VELOCITY.x;
-	BMX055_data[10] = VELOCITY.y;
-	BMX055_data[11] = VELOCITY.z;
-	BMX055_data[12] = MAG_POS.x;
-	BMX055_data[13] = MAG_POS.y;
-	BMX055_data[14] = MAG_POS.z;
-	BMX055_data[15] = GYRO_OFFSET.x;
-	BMX055_data[16] = GYRO_OFFSET.y;
-	BMX055_data[17] = GYRO_OFFSET.z;
-	BMX055_data[18] = ACCEL_OFFSET.x;
-	BMX055_data[19] = ACCEL_OFFSET.y;
-	BMX055_data[20] = ACCEL_OFFSET.z;
-	BMX055_data[21] = heading;
+//	BMX055_data[0] = GYRO_MOVEMENT.x;
+//	BMX055_data[1] = GYRO_MOVEMENT.y;
+//	BMX055_data[2] = GYRO_MOVEMENT.z;
+//	BMX055_data[3] = GYRO_POS.x;
+//	BMX055_data[4] = GYRO_POS.y;
+//	BMX055_data[5] = GYRO_POS.z;
+//	BMX055_data[6] = ACCEL.x;
+//	BMX055_data[7] = ACCEL.y;
+//	BMX055_data[8] = ACCEL.z;
+//	BMX055_data[9] = VELOCITY.x;
+//	BMX055_data[10] = VELOCITY.y;
+//	BMX055_data[11] = VELOCITY.z;
+//	BMX055_data[12] = MAG_POS.x;
+//	BMX055_data[13] = MAG_POS.y;
+//	BMX055_data[14] = MAG_POS.z;
+//	BMX055_data[15] = GYRO_OFFSET.x;
+//	BMX055_data[16] = GYRO_OFFSET.y;
+//	BMX055_data[17] = GYRO_OFFSET.z;
+//	BMX055_data[18] = ACCEL_OFFSET.x;
+//	BMX055_data[19] = ACCEL_OFFSET.y;
+//	BMX055_data[20] = ACCEL_OFFSET.z;
+//	BMX055_data[21] = degree;
+
+	BMX055_data[0] = degree;
 
 	BMX055_raw[0] = GYRO_RAW.x;
 	BMX055_raw[1] = GYRO_RAW.y;
@@ -595,9 +634,6 @@ void BMX055_init(I2C_HandleTypeDef *hi2c, float timer){ //initialization for BMX
 	BMX055_raw[6] = MAG_RAW.x;
 	BMX055_raw[7] = MAG_RAW.y;
 	BMX055_raw[8] = MAG_RAW.z;
-
-
-
 }
 
 const RobotActivity DetectActivity() {

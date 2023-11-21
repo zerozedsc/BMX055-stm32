@@ -71,6 +71,7 @@
 #define MAG_Z_MSB 0x47
 #define MAG_ERROR_MULTIPLIER 1.0f
 #define MAG_ERROR_CONSTANT 0.0f
+#define DEGREE10 35
 
 
 // 3 SENSOR IN ONE TIME SETUP
@@ -89,7 +90,7 @@
 #define FALLING_THRESHOLD_Z 4.5f //This represents the deviation from the gravitational acceleration (in the z-axis) that indicates the robot is falling.
 #define FALLING_THRESHOLD_TOTAL 15.0f // This represents the magnitude of the acceleration in all directions.
 #define NUM_CALIBRATION_SAMPLES 1000
-#define BMX055_SIZE 22
+#define BMX055_SIZE 1
 
 
 typedef struct {
@@ -133,7 +134,7 @@ extern POS MAG_OFFSET;
 extern POS MAG_RAW;
 
 extern int checkMag;
-extern float orientation, heading, BMX055_data[BMX055_SIZE], BMX055_raw[9]; //heading and orientation value from magnetometer
+extern float degree, heading, BMX055_data[BMX055_SIZE], BMX055_raw[9]; //heading and orientation value from magnetometer
 
 int MagCheck(I2C_HandleTypeDef *hi2c);
 void ReadMag(I2C_HandleTypeDef *hi2c);
