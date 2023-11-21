@@ -64,4 +64,80 @@ void StartTask02(void *argument)
 }
 ```
 
+### 3. Set Publisher Function
 
+Define the BMX055 publisher function inside main.c.
+
+```c
+// inside main.c
+rcl_publisher_t publisher, pub_float_array, publisher_int, pub_bmx055_raw;
+std_msgs__msg__Float32MultiArray pub_arr_msg;
+
+void Publish_Bmx055(){
+    pub_arr_msg.data.size = BMX055_SIZE;
+    pub_arr_msg.data.data = BMX055_data;
+    rcl_publish(&pub_float_array, &pub_arr_msg, NULL);
+
+    pub_arr_msg.data.size = 9;
+    pub_arr_msg.data.data = BMX055_raw;
+    rcl_publish(&pub_bmx055_raw, &pub_arr_msg, NULL);
+}
+```
+
+### 4. Set up Publisher in StartDefaultTask()
+
+Inside the ```StartDefaultTask()``` function, create the BMX055 publishers.
+
+```c
+// inside StartDefaultTask()
+// create publisher
+RCCHECK(rclc_publisher_init_best_effort(
+                 &pub_float_array,
+                 &node,
+                 ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
+                 "/BMX055_DATA"));
+
+RCCHECK(rclc_publisher_init_best_effort(
+                 &pub_bmx055_raw,
+                 &node,
+                 ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32MultiArray),
+                 "/BMX055_RAW"));
+```
+
+### 5. Configure I2C Connection
+
+Set up I2C connection settings (default with a clock speed of 100 kHz) in the .ioc file.
+
+### 6. Python ROS Setup
+
+For the bmx055.py file, set it up inside the Python ROS package. In setup.py, include the entry point for the bmx055 script.
+
+```python
+setup(
+    ...
+    entry_points={
+        'console_scripts': [
+            ...
+            'bmx055=lec_1.bmx055:main',
+        ],
+    },
+)
+```
+
+Use ```colcon build``` to build the Python ROS package.
+
+Run the Python file with ROS:
+
+```bash
+ros2 run your_python_package_name bmx055
+```
+
+Replace placeholders such as `your_python_package_name` with actual information specific to your project.
+
+## Acknowledgments
+
+- BMX055 DATASHEET https://www.mouser.com/datasheet/2/783/BST_BMX055_DS000-1509552.pdf
+
+## Contact
+
+Feel free to [report issues](https://github.com/yourusername/BMX055-stm32/issues) or [contribute](https://github.com/yourusername/BMX055-stm32/pulls) to this project!
