@@ -186,13 +186,17 @@ Contain converted magnetometer raw value data to degree value from range 0 to 35
 
 **`float BMX055_data[BMX055_SIZE]`**:  
 Contains processed data of sensor saved in array
+```
 [0] = Magnetometer degree value
+```
 
 **`float BMX055_raw[9]`**:  
 Contains raw data of sensor
+```
 [0-2] = XYZ GYROSCOPE
 [3-5] = XYZ ACCELERATOR
 [6-8] = XYZ MAGNETOMETER
+```
 
 **`int getBMX055Count();`**:  
 Get counter value for every successfully reading sensor data
