@@ -83,6 +83,12 @@ Define the BMX055 publisher function inside `main.c`.
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 // other include ...
+#include <std_msgs/msg/int32_multi_array.h>
+#include <std_msgs/msg/float32_multi_array.h>
+#include <std_msgs/msg/int32.h>
+#include <std_msgs/msg/float32.h>
+#include "rosidl_runtime_c/string_functions.h"
+
 #include "BMX055.h"
 /* USER CODE END Includes */
 
